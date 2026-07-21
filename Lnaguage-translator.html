@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>나만의 로컬 교정 번역기</title>
+<!--
+  ─────────────────────────────────────────────────────────────
+  나만의 로컬 교정 번역기 (Fully Local Proofreading Translator)
+  - 내 컴퓨터의 Ollama(로컬 LLM)로만 동작. 문장이 컴퓨터 밖으로 나가지 않음.
+  - 외부 라이브러리 0개, 외부 링크 0개, 인터넷 연결 불필요 (모델 설치 후).
+  - 쿠키/localStorage/추적 스크립트 없음.
+  - 이 코드는 개인용·상업적 이용·수정·배포 모두 자유 (MIT 스타일).
+  ─────────────────────────────────────────────────────────────
+-->
+<style>
+  :root{
+    --paper:#F5F6F2; --card:#FFFFFF; --ink:#22303A; --sub:#68757F;
+    --line:#DDE2DC; --red:#CE3B32; --redsoft:#FBEDEC;
+    --green:#2C7A57; --greensoft:#EBF4EF; --blue:#2F5B9E; --bluesoft:#EEF3FA;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',Georgia,sans-serif}
+  .wrap{max-width:780px;margin:0 auto;padding:40px 20px 60px}
+  .eyebrow{font-size:12px;letter-spacing:2px;color:var(--red);font-weight:700}
+  h1{margin:6px 0 4px;font-size:30px;font-weight:800}
+  .desc{margin:0;color:var(--sub);font-size:14px;line-height:1.7}
+  .desc .wavy{color:var(--red);text-decoration:underline wavy var(--red) 2px;text-underline-offset:3px}
+
+  .settings{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 10px;align-items:center}
+  .settings input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;
+    background:var(--card);color:var(--ink);font-family:inherit}
+  #serverUrl{width:220px} #modelName{width:150px}
+  .mini-btn{border:1px solid var(--line);background:var(--card);color:var(--sub);
+    padding:8px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit}
+  #connStatus{font-size:13px}
+
+  .dir-row{display:flex;gap:8px;margin:14px 0}
+  .dir-btn{border:1px solid var(--line);background:var(--card);color:var(--sub);
+    padding:8px 18px;border-radius:99px;font-size:14px;cursor:pointer;font-family:inherit}
+  .dir-btn.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+  .input-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+  textarea{width:100%;border:none;resize:vertical;font-size:17px;line-height:1.7;
+    background:transparent;color:var(--ink);font-family:inherit;min-height:96px}
+  .go-row{display:flex;justify-content:flex-end;margin-top:10px}
+  .go-btn{background:var(--red);color:#fff;border:none;border-radius:10px;
+    padding:12px 26px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
+  .go-btn:disabled{opacity:.5;cursor:default}
+  textarea:focus,button:focus,input:focus{outline:2px solid var(--blue);outline-offset:2px}
+
+  .msg{margin-top:14px;border-radius:10px;padding:12px 16px;font-size:14px;line-height:1.7;display:none}
+  .msg.err{background:var(--redsoft);color:var(--red);display:block}
+  .msg.ok{background:var(--greensoft);color:var(--green);display:block}
+
+  #results{margin-top:24px;display:grid;gap:16px}
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .sec-label{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:1px;margin-bottom:8px}
+  .sec.green{background:var(--greensoft)} .sec.green .sec-label{color:var(--green)}
+  .sec.blue{background:var(--bluesoft)} .sec.blue .sec-label{color:var(--blue)}
+  .big-text{margin:0;font-size:18px;line-height:2}
+  .bold-text{font-weight:600;line-height:1.8}
+
+  .err-mark{position:relative;cursor:help;color:var(--red);
+    text-decoration:underline wavy var(--red) 2px;text-underline-offset:4px}
+  .err-tip{visibility:hidden;opacity:0;transition:opacity .12s;position:absolute;left:0;
+    top:calc(100% + 8px);z-index:20;min-width:230px;max-width:320px;background:var(--ink);
+    color:#fff;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.55;
+    box-shadow:0 6px 18px rgba(0,0,0,.18);white-space:normal;font-weight:400}
+  .err-mark:hover .err-tip,.err-mark:focus .err-tip{visibility:visible;opacity:1}
+  .tip-badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;
+    background:var(--red);margin-right:6px}
+  .tip-fixed{color:#8FE3B8;font-weight:700}
+
+  .alt-card{background:var(--card);border:1px dashed var(--line);border-radius:12px;
+    padding:14px;opacity:.92;margin-bottom:10px}
+  .alt-card p{margin:0;font-size:16px;line-height:1.7}
+  .alt-tr{margin-top:4px !important;font-size:14px !important;color:var(--sub)}
+  .alt-note{margin-top:6px !important;font-size:12px !important;color:var(--blue)}
+  .vocab-card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:14px;margin-bottom:10px}
+  .vocab-term{font-size:16px;font-weight:700}
+  .vocab-meaning{font-weight:400;color:var(--sub);font-size:14px}
+  .vocab-ex{margin:6px 0 0;font-size:14px;line-height:1.6}
+  .vocab-ex-tr{margin:2px 0 0;font-size:13px;color:var(--sub)}
+
+  .privacy{margin-top:32px;font-size:12px;color:var(--sub);line-height:1.7}
+  footer{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);
+    font-size:11px;color:var(--sub);text-align:center;line-height:1.8}
+  @media (prefers-reduced-motion:reduce){.err-tip{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">100% LOCAL · PROOFREAD · TRANSLATE</div>
+    <h1>나만의 로컬 교정 번역기</h1>
+    <p class="desc">
+      내 컴퓨터에 설치된 Ollama로만 동작합니다. 문장은 컴퓨터 밖으로 나가지 않으며, 인터넷이 끊겨도 사용할 수 있습니다.
+      틀린 부분에는 <span class="wavy">빨간줄</span>이 그어지고, 마우스를 올리면 이유가 표시됩니다.
+    </p>
+  </header>
+
+  <div class="settings">
+    <input id="serverUrl" value="http://localhost:11434" aria-label="Ollama 서버 주소">
+    <input id="modelName" value="qwen3:8b" aria-label="모델 이름">
+    <button class="mini-btn" id="connBtn" type="button">연결 확인</button>
+    <span id="connStatus"></span>
+  </div>
+
+  <div class="dir-row">
+    <button class="dir-btn on" id="btnEnKo" type="button">영→한 번역기</button>
+    <button class="dir-btn" id="btnKoEn" type="button">한→영 번역기</button>
+  </div>
+
+  <div class="input-card">
+    <textarea id="inputText" placeholder="문장 입력 (영어 문장을 입력하세요)"></textarea>
+    <div class="go-row">
+      <button class="go-btn" id="goBtn" type="button">검사 · 번역하기</button>
+    </div>
+  </div>
+
+  <div class="msg" id="msgBox"></div>
+  <div id="results"></div>
+
+  <div class="privacy">
+    이 앱은 외부 서버·외부 라이브러리·외부 링크를 전혀 사용하지 않습니다. 모든 처리는 내 컴퓨터의 Ollama(localhost)에서만 이루어지며,
+    쿠키·localStorage·광고·추적 스크립트가 없고, 새로고침하면 모든 내용이 사라집니다.<br>
+    This app uses no external servers, libraries, or links. All processing happens only on your own computer via Ollama (localhost).
+    No cookies, no localStorage, no ads, no trackers.
+  </div>
+
+  <footer>
+    이 프로그램은 LLM(클로드 AI)를 사용하여 만들고 수정되었음<br>
+    This program was created and modified using an LLM (Claude AI)
+  </footer>
+</div>
+
+<script>
+"use strict";
+let direction = "en2ko";
+let busy = false;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+// ── 방향 전환 ─────────────────────────────────────────────
+$("btnEnKo").addEventListener("click", () => setDir("en2ko"));
+$("btnKoEn").addEventListener("click", () => setDir("ko2en"));
+function setDir(d){
+  direction = d;
+  $("btnEnKo").classList.toggle("on", d === "en2ko");
+  $("btnKoEn").classList.toggle("on", d === "ko2en");
+  $("inputText").placeholder = d === "en2ko"
+    ? "문장 입력 (영어 문장을 입력하세요)"
+    : "문장 입력 (한국어 문장을 입력하세요)";
+}
+
+// ── 연결 확인 ─────────────────────────────────────────────
+$("connBtn").addEventListener("click", async () => {
+  const st = $("connStatus");
+  st.style.color = "var(--sub)"; st.textContent = "확인 중…";
+  try {
+    const r = await fetch($("serverUrl").value.replace(/\/+$/,"") + "/api/tags");
+    const d = await r.json();
+    const names = (d.models || []).map(m => m.name);
+    st.style.color = "var(--green)";
+    st.textContent = names.length
+      ? "✓ 연결됨 · 설치된 모델: " + names.join(", ")
+      : "✓ 연결됨 · 설치된 모델 없음 (ollama pull 필요)";
+  } catch(e) {
+    st.style.color = "var(--red)";
+    st.textContent = "✗ 연결 실패 — Ollama 실행 여부와 OLLAMA_ORIGINS 설정을 확인하세요.";
+  }
+});
+
+// ── 프롬프트 ─────────────────────────────────────────────
+function buildPrompt(text){
+  const langDesc = direction === "en2ko"
+? `입력 언어: 영어 / 번역 목표: 자연스러운 한국어.
+- 영어 문장의 철자(spelling), 문법(grammar), 어색한 표현(expression) 오류를 모두 찾아라.
+- "corrected"에는 문법적으로 올바르고 일상 회화에서 자연스러운 영어 문장을 넣어라.
+- "translation"에는 자연스러운 한국어 해석을 넣어라.
+- "alternatives"에는 같은 의미이지만 다른 문법·구조를 쓴 자연스러운 영어 문장 2개와 각각의 한국어 해석을 넣어라.
+- "vocab"에는 문장에 등장하는 중요한 숙어/구동사/단어의 한국어 뜻, 영어 예문, 예문의 한국어 해석을 넣어라.`
+: `입력 언어: 한국어 / 번역 목표: 자연스러운 영어.
+- 한국어 문장의 맞춤법, 띄어쓰기, 어색한 표현 오류를 모두 찾아라.
+- "corrected"에는 맞춤법이 올바르고 자연스러운 한국어 문장을 넣어라.
+- "translation"에는 원어민이 실제로 쓸 법한 자연스러운 영어 번역을 넣어라.
+- "alternatives"에는 같은 의미이지만 다른 문법·구조를 쓴 자연스러운 영어 번역 2개와 각각의 한국어 해석을 넣어라.
+- "vocab"에는 영어 번역에 등장한 중요한 숙어/구동사/단어의 한국어 뜻, 영어 예문, 예문의 한국어 해석을 넣어라.`;
+
+  return `너는 영어-한국어 교정 번역기다. 아래 문장을 분석하고 반드시 순수 JSON으로만 답하라. /no_think
+
+${langDesc}
+
+입력 문장:
+"""${text}"""
+
+JSON 형식:
+{"errors":[{"wrong":"입력 문장에 글자 그대로 존재하는 틀린 부분","fixed":"고친 부분","type":"spelling|grammar|expression","explanation":"왜 틀렸는지 한국어로 짧게"}],
+"corrected":"오류를 모두 고친 문장 (오류 없으면 원문 그대로)",
+"translation":"번역 결과",
+"alternatives":[{"sentence":"다른 문법의 문장1","translation":"해석","note":"쓰인 문법 한 줄"},{"sentence":"다른 문법의 문장2","translation":"해석","note":"쓰인 문법 한 줄"}],
+"vocab":[{"term":"숙어/단어","meaning":"한국어 뜻","example":"영어 예문","exampleTranslation":"예문 해석"}]}
+오류가 없으면 errors는 []. "wrong"은 반드시 입력 문장 안에 그대로 존재해야 한다. 마크다운 없이 JSON만 출력.`;
+}
+
+// ── 분석 실행 ─────────────────────────────────────────────
+$("goBtn").addEventListener("click", analyze);
+async function analyze(){
+  const text = $("inputText").value.trim();
+  if (!text || busy) return;
+  busy = true;
+  $("goBtn").disabled = true;
+  $("goBtn").textContent = "검사 중… (로컬 모델 속도에 따라 수십 초 걸릴 수 있음)";
+  showMsg("", "");
+  $("results").innerHTML = "";
+
+  try {
+    const url = $("serverUrl").value.replace(/\/+$/,"") + "/api/chat";
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: $("modelName").value.trim(),
+        stream: false,
+        format: "json",
+        options: { temperature: 0.3 },
+        messages: [{ role: "user", content: buildPrompt(text) }]
+      })
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const data = await r.json();
+    let raw = (data.message && data.message.content) ? data.message.content : "";
+    raw = raw.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(raw);
+    render(text, parsed);
+  } catch(e) {
+    showMsg("분석에 실패했습니다: " + esc(e.message) +
+      "<br>① Ollama가 실행 중인지 ② 모델 이름이 설치된 모델과 같은지 ③ OLLAMA_ORIGINS=\"*\" 설정 후 Ollama를 재시작했는지 확인해 주세요.", "err");
+  } finally {
+    busy = false;
+    $("goBtn").disabled = false;
+    $("goBtn").textContent = "검사 · 번역하기";
+  }
+}
+
+function showMsg(html, kind){
+  const m = $("msgBox");
+  m.className = "msg" + (kind ? " " + kind : "");
+  m.innerHTML = html;
+}
+
+// ── 원문을 오류 구간으로 분할 ────────────────────────────
+function segmentText(text, errors){
+  const marks = [];
+  for (const err of errors || []) {
+    if (!err || !err.wrong) continue;
+    let idx = text.indexOf(err.wrong);
+    if (idx === -1) idx = text.toLowerCase().indexOf(String(err.wrong).toLowerCase());
+    if (idx === -1) continue;
+    const end = idx + err.wrong.length;
+    if (!marks.some(m => idx < m.end && end > m.start)) marks.push({start: idx, end, err});
+  }
+  marks.sort((a,b) => a.start - b.start);
+  const segs = []; let pos = 0;
+  for (const m of marks) {
+    if (m.start > pos) segs.push({text: text.slice(pos, m.start)});
+    segs.push({text: text.slice(m.start, m.end), err: m.err});
+    pos = m.end;
+  }
+  if (pos < text.length) segs.push({text: text.slice(pos)});
+  return segs;
+}
+
+const TYPE_LABEL = {spelling: "철자", grammar: "문법", expression: "표현"};
+
+// ── 결과 렌더링 ──────────────────────────────────────────
+function render(original, res){
+  const errors = Array.isArray(res.errors) ? res.errors : [];
+  const segs = segmentText(original, errors);
+
+  const origHtml = segs.map(s => {
+    if (!s.err) return esc(s.text);
+    const label = TYPE_LABEL[s.err.type] || "오류";
+    return `<span class="err-mark" tabindex="0">${esc(s.text)}<span class="err-tip">` +
+      `<span class="tip-badge">${esc(label)}</span>` +
+      `<b>${esc(s.err.wrong)}</b> → <span class="tip-fixed">${esc(s.err.fixed)}</span><br>` +
+      `${esc(s.err.explanation)}</span></span>`;
+  }).join("");
+
+  let html = `
+  <section class="sec">
+    <div class="sec-label">원문 검사 결과 ${errors.length
+      ? "· 오류 " + errors.length + "곳 (마우스를 올려 보세요)" : "· 오류 없음 ✓"}</div>
+    <p class="big-text">${origHtml}</p>
+  </section>
+  <section class="sec green">
+    <div class="sec-label">자연스럽게 고친 문장</div>
+    <p class="big-text bold-text">${esc(res.corrected)}</p>
+  </section>
+  <section class="sec blue">
+    <div class="sec-label">${direction === "en2ko" ? "한국어 해석" : "영어 번역"}</div>
+    <p class="big-text" style="line-height:1.8">${esc(res.translation)}</p>
+  </section>`;
+
+  const alts = Array.isArray(res.alternatives) ? res.alternatives : [];
+  if (alts.length) {
+    html += `<section style="padding:4px 6px">
+      <div class="sec-label">같은 뜻, 다른 문법으로 말하기</div>` +
+      alts.map(a => `<div class="alt-card">
+        <p>${esc(a.sentence)}</p>
+        <p class="alt-tr">${esc(a.translation)}</p>
+        ${a.note ? `<p class="alt-note">✎ ${esc(a.note)}</p>` : ""}
+      </div>`).join("") + `</section>`;
+  }
+
+  const vocab = Array.isArray(res.vocab) ? res.vocab : [];
+  if (vocab.length) {
+    html += `<section style="padding:4px 6px">
+      <div class="sec-label">이 문장의 숙어 · 단어</div>` +
+      vocab.map(v => `<div class="vocab-card">
+        <div class="vocab-term">${esc(v.term)} <span class="vocab-meaning">— ${esc(v.meaning)}</span></div>
+        <p class="vocab-ex">예문: ${esc(v.example)}</p>
+        <p class="vocab-ex-tr">${esc(v.exampleTranslation)}</p>
+      </div>`).join("") + `</section>`;
+  }
+
+  $("results").innerHTML = html;
+}
+</script>
+</body>
+</html>
